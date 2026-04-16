@@ -15,7 +15,7 @@ class AzureAIClient:
 
     def generate_image(self, prompt) -> str:
         response = self.client.images.generate(
-            model="dalle3",
+            model=config["AI"]["IMAGE_MODEL"],
             prompt=prompt,
             size="1024x1024",
             quality="standard",
