@@ -1,8 +1,8 @@
 import base64
 import json
-from typing import Union
-from urllib.error import HTTPError
-from urllib import parse, request
+import requests
+from typing import Union, Optional
+from io import BytesIO
 
 from openai import AzureOpenAI
 from db.MySqlConn import config
@@ -22,98 +22,203 @@ class AzureAIClient:
             api_version=config["AI"]["IMAGE_VERSION"]
         )
 
-    def generate_image(self, prompt) -> Union[bytes, str]:
+    def generate_image(self, prompt: str, size: str = "1024x1024", quality: str = "medium", n: int = 1) -> Union[bytes, str]:
+        """
+        Generate image using Azure OpenAI DALL-E
+        
+        Args:
+            prompt: Image generation prompt
+            size: Image size (default: "1024x1024")
+            quality: Image quality ("standard" or "medium")
+            n: Number of images to generate (default: 1)
+            
+        Returns:
+            Image data as bytes or URL string
+        """
         ai_config = config["AI"]
-        endpoint = config["AI"]["IMAGE_BASE"].rstrip("/")
-        deployment = config["AI"]["IMAGE_MODEL"]
-        api_version = config["AI"]["IMAGE_VERSION"]
-        image_api_key = ai_config.get("IMAGE_TOKEN", "")
-        image_bearer_token = ai_config.get("IMAGE_BEARER_TOKEN") or image_api_key
-        image_auth_type = ai_config.get("IMAGE_AUTH_TYPE", "auto")
-        api_url = (
-            f"{endpoint}/openai/deployments/{deployment}/images/generations?"
-            f"{parse.urlencode({'api-version': api_version})}"
-        )
-        payload = {
+        endpoint = ai_config["IMAGE_BASE"].rstrip("/")
+        deployment = ai_config["IMAGE_MODEL"]
+        api_version = ai_config["IMAGE_VERSION"]
+        
+        # Build API URL
+        generation_url = f"{endpoint}/openai/deployments/{deployment}/images/generations?api-version={api_version}"
+        
+        # Prepare request body
+        body = {
             "prompt": prompt,
-            "size": "1024x1024",
-            "quality": "medium",
-            "output_compression": 100,
+            "size": size,
+            "quality": quality,
             "output_format": "png",
-            "n": 1
+            "n": n
         }
+        
+        # Try authentication methods
+        headers = self._get_image_auth_headers()
         last_error = None
-        auth_headers = self._build_image_auth_headers(
-            image_api_key,
-            image_bearer_token,
-            image_auth_type
-        )
-
-        if not auth_headers:
-            raise ValueError("No valid Azure image auth header could be built. Check IMAGE_AUTH_TYPE and tokens.")
-
-        for headers in auth_headers:
-            http_request = request.Request(
-                api_url,
-                headers=headers,
-                data=json.dumps(payload).encode("utf-8"),
-                method="POST"
-            )
-
+        
+        for header in headers:
             try:
-                with request.urlopen(http_request, timeout=60) as response:
-                    response_payload = json.loads(response.read().decode("utf-8"))
-                break
-            except HTTPError as exc:
-                error_body = exc.read().decode("utf-8", errors="replace")
-                last_error = HTTPError(
-                    exc.url,
-                    exc.code,
-                    f"{exc.reason}: {error_body}",
-                    exc.headers,
-                    None
+                response = requests.post(
+                    generation_url,
+                    headers=header,
+                    json=body,
+                    timeout=60
                 )
-                if exc.code not in (401, 403):
-                    raise last_error
+                response.raise_for_status()
+                response_data = response.json()
+                break
+            except requests.exceptions.HTTPError as exc:
+                last_error = exc
+                # Only retry on auth errors
+                if exc.response.status_code not in (401, 403):
+                    raise exc
         else:
-            if last_error and "AuthenticationTypeDisabled" in str(last_error):
+            # All auth methods failed
+            if last_error and "AuthenticationTypeDisabled" in str(last_error.response.text):
                 raise ValueError(
                     "Azure key-based auth is disabled for image generation. "
                     "Set AI.IMAGE_AUTH_TYPE to 'bearer' and provide AI.IMAGE_BEARER_TOKEN "
                     "(Microsoft Entra access token for https://cognitiveservices.azure.com/.default)."
                 )
             raise last_error
-
-        image_data = response_payload["data"][0]
-
+        
+        # Extract image data
+        image_data = response_data["data"][0]
+        
         if image_data.get("b64_json"):
             return base64.b64decode(image_data["b64_json"])
-
+        
         if image_data.get("url"):
             return image_data["url"]
-
+        
         raise ValueError("Azure image generation response missing image data")
+    
+    def edit_image(
+        self,
+        prompt: str,
+        image_data: bytes,
+        mask_data: Optional[bytes] = None,
+        size: str = "1024x1024",
+        quality: str = "medium",
+        n: int = 1
+    ) -> Union[bytes, str]:
+        """
+        Edit image using Azure OpenAI DALL-E
+        
+        Args:
+            prompt: Image editing prompt
+            image_data: Original image as bytes
+            mask_data: Optional mask image as bytes (transparent areas will be edited)
+            size: Image size (default: "1024x1024")
+            quality: Image quality ("standard" or "medium")
+            n: Number of images to generate (default: 1)
+            
+        Returns:
+            Edited image data as bytes or URL string
+        """
+        ai_config = config["AI"]
+        endpoint = ai_config["IMAGE_BASE"].rstrip("/")
+        deployment = ai_config["IMAGE_MODEL"]
+        api_version = ai_config["IMAGE_VERSION"]
+        
+        # Build API URL
+        edit_url = f"{endpoint}/openai/deployments/{deployment}/images/edits?api-version={api_version}"
+        
+        # Prepare request body
+        data = {
+            "prompt": prompt,
+            "size": size,
+            "quality": quality,
+            "n": n
+        }
+        
+        # Prepare files
+        files = {
+            "image": ("image.png", BytesIO(image_data), "image/png")
+        }
+        
+        if mask_data:
+            files["mask"] = ("mask.png", BytesIO(mask_data), "image/png")
+        
+        # Get auth headers (exclude Content-Type for multipart/form-data)
+        headers = self._get_image_auth_headers(include_content_type=False)
+        last_error = None
+        
+        for header in headers:
+            try:
+                response = requests.post(
+                    edit_url,
+                    headers=header,
+                    data=data,
+                    files=files,
+                    timeout=60
+                )
+                response.raise_for_status()
+                response_data = response.json()
+                break
+            except requests.exceptions.HTTPError as exc:
+                last_error = exc
+                # Only retry on auth errors
+                if exc.response.status_code not in (401, 403):
+                    raise exc
+        else:
+            # All auth methods failed
+            if last_error:
+                raise last_error
+        
+        # Extract image data
+        image_data = response_data["data"][0]
+        
+        if image_data.get("b64_json"):
+            return base64.b64decode(image_data["b64_json"])
+        
+        if image_data.get("url"):
+            return image_data["url"]
+        
+        raise ValueError("Azure image edit response missing image data")
 
-    @staticmethod
-    def _build_image_auth_headers(api_key, bearer_token, auth_type="auto"):
-        mode = (auth_type or "auto").strip().lower()
-        if mode not in ("auto", "api_key", "bearer"):
-            mode = "auto"
-
-        headers = []
-        if mode in ("auto", "api_key") and api_key:
-            headers.append({
-                "Content-Type": "application/json",
+    def _get_image_auth_headers(self, include_content_type: bool = True):
+        """
+        Build authentication headers for Azure image API
+        
+        Args:
+            include_content_type: Whether to include Content-Type header
+            
+        Returns:
+            List of header dictionaries to try (supports auth fallback)
+        """
+        ai_config = config["AI"]
+        api_key = ai_config.get("IMAGE_TOKEN", "")
+        bearer_token = ai_config.get("IMAGE_BEARER_TOKEN") or api_key
+        auth_type = ai_config.get("IMAGE_AUTH_TYPE", "auto").strip().lower()
+        
+        if auth_type not in ("auto", "api_key", "bearer"):
+            auth_type = "auto"
+        
+        headers_list = []
+        base_headers = {"Content-Type": "application/json"} if include_content_type else {}
+        
+        # Try API key auth
+        if auth_type in ("auto", "api_key") and api_key:
+            headers_list.append({
+                **base_headers,
                 "api-key": api_key
             })
-
-        if mode in ("auto", "bearer") and bearer_token:
-            headers.append({
-                "Content-Type": "application/json",
+        
+        # Try Bearer token auth
+        if auth_type in ("auto", "bearer") and bearer_token:
+            headers_list.append({
+                **base_headers,
                 "Authorization": f"Bearer {bearer_token}"
             })
-
-        return headers
+        
+        if not headers_list:
+            raise ValueError(
+                "No valid Azure image auth header could be built. "
+                "Check IMAGE_AUTH_TYPE and tokens in config."
+            )
+        
+        return headers_list
 
     def chat_completions(self, messages: list):
         completion = self.client.chat.completions.create(
