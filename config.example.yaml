@@ -1,13 +1,17 @@
 BOT:
   TOKEN: 55***88  # Get your bot token from @BotFater
 AI:
-  VERSION: "2023-03-15-preview"
-  IMAGE_VERSION: "2025-04-01-preview"  # API version required for gpt-image-1
-  TYPE: "azure"
-  MODEL: "your azure openai deployment name"
+  # Chat completions
+  CHAT_TOKEN: "your azure openai api key"
+  MODEL: "your azure openai chat deployment name"
+  CHAT_VERSION: "2024-05-01-preview"
+  CHAT_BASE: "https://your-resource.openai.azure.com/"
+  # Image generation
+  IMAGE_TOKEN: "your azure openai api key"
   IMAGE_MODEL: "your azure openai image deployment name"
-  BASE: "https://docs-test-001.openai.azure.com/"
-  TOKEN: "be***b63f"
+  IMAGE_VERSION: "2025-04-01-preview"  # API version required for gpt-image-1
+  IMAGE_BASE: "https://your-resource.openai.azure.com/"
+  TYPE: "azure"
 MYSQL:
   DBHOST: 127.0.0.1
   DBPORT: 3306

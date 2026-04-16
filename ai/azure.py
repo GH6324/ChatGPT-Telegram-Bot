@@ -5,16 +5,14 @@ from ai import OPENAI_CHAT_COMPLETION_OPTIONS
 
 class AzureAIClient:
     def __init__(self):
-        self.open_ai_config = {
-            'api_key': config["AI"]["TOKEN"],
-            'azure_endpoint': config["AI"]["BASE"],
-            'api_version': config["AI"]["VERSION"]
-        }
-
-        self.client = AzureOpenAI(**self.open_ai_config)
+        self.client = AzureOpenAI(
+            api_key=config["AI"]["CHAT_TOKEN"],
+            azure_endpoint=config["AI"]["CHAT_BASE"],
+            api_version=config["AI"]["CHAT_VERSION"]
+        )
         self.image_client = AzureOpenAI(
-            api_key=config["AI"]["TOKEN"],
-            azure_endpoint=config["AI"]["BASE"],
+            api_key=config["AI"]["IMAGE_TOKEN"],
+            azure_endpoint=config["AI"]["IMAGE_BASE"],
             api_version=config["AI"]["IMAGE_VERSION"]
         )
 
@@ -31,7 +29,6 @@ class AzureAIClient:
         return image_url
 
     def chat_completions(self, messages: list):
-        answer = ""
         completion = self.client.chat.completions.create(
             model=OPENAI_CHAT_COMPLETION_OPTIONS["model"],
             messages=messages

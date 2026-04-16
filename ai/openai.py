@@ -5,7 +5,7 @@ from ai import OPENAI_CHAT_COMPLETION_OPTIONS
 
 class OpenAIClient:
     def __init__(self):
-        self.open_ai_config = {'api_key': config["AI"]["TOKEN"]}
+        self.open_ai_config = {'api_key': config["AI"]["CHAT_TOKEN"]}
         self.client = OpenAI(**self.open_ai_config)
 
     def generate_image(self, prompt) -> str:
