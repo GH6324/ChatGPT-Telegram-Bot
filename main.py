@@ -58,7 +58,7 @@ from buttons.others import non_text_handler, done, error_handler
 def main() -> None:
     """Start the bot."""
     # Create the Updater and pass it your bot's token.
-    persistence = PicklePersistence(filepath='conversationbot')
+    persistence = PicklePersistence(filepath='data/conversationbot')
 
     # Create the Application and pass it your bot's token.
     application = Application.builder().token(config["BOT"]["TOKEN"]).persistence(persistence).build()
