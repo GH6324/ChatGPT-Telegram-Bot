@@ -44,12 +44,11 @@ jobs:
 
       - name: Start container
         run: |
-          docker run -itd \
+          WORK_DIR="$(pwd)"
+          docker run -d \
             --name chatgpt-telegram-bot \
             --network=host \
             --restart=always \
-            -v /root/workspace/ai/chatgpt-telegram-bot/config.yaml:/app/config.yaml \
-            -v /root/workspace/ai/chatgpt-telegram-bot/templates.py:/app/buttons/templates.py \
             -v /data/oss/chatgpt-telegram-bot/data:/app/data \
             chatgpt-telegram-bot:latest
         shell: bash
