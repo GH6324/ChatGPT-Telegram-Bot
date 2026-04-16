@@ -12,9 +12,14 @@ class AzureAIClient:
         }
 
         self.client = AzureOpenAI(**self.open_ai_config)
+        self.image_client = AzureOpenAI(
+            api_key=config["AI"]["TOKEN"],
+            azure_endpoint=config["AI"]["BASE"],
+            api_version=config["AI"]["IMAGE_VERSION"]
+        )
 
     def generate_image(self, prompt) -> str:
-        response = self.client.images.generate(
+        response = self.image_client.images.generate(
             model=config["AI"]["IMAGE_MODEL"],
             prompt=prompt,
             size="1024x1024",

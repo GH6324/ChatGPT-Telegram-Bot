@@ -2,6 +2,7 @@ BOT:
   TOKEN: 55***88  # Get your bot token from @BotFater
 AI:
   VERSION: "2023-03-15-preview"
+  IMAGE_VERSION: "2025-04-01-preview"  # API version required for gpt-image-1
   TYPE: "azure"
   MODEL: "your azure openai deployment name"
   IMAGE_MODEL: "your azure openai image deployment name"
