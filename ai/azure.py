@@ -23,9 +23,13 @@ class AzureAIClient:
         )
 
     def generate_image(self, prompt) -> Union[bytes, str]:
+        ai_config = config["AI"]
         endpoint = config["AI"]["IMAGE_BASE"].rstrip("/")
         deployment = config["AI"]["IMAGE_MODEL"]
         api_version = config["AI"]["IMAGE_VERSION"]
+        image_api_key = ai_config.get("IMAGE_TOKEN", "")
+        image_bearer_token = ai_config.get("IMAGE_BEARER_TOKEN") or image_api_key
+        image_auth_type = ai_config.get("IMAGE_AUTH_TYPE", "auto")
         api_url = (
             f"{endpoint}/openai/deployments/{deployment}/images/generations?"
             f"{parse.urlencode({'api-version': api_version})}"
@@ -39,7 +43,14 @@ class AzureAIClient:
             "n": 1
         }
         last_error = None
-        auth_headers = self._build_image_auth_headers(config["AI"]["IMAGE_TOKEN"])
+        auth_headers = self._build_image_auth_headers(
+            image_api_key,
+            image_bearer_token,
+            image_auth_type
+        )
+
+        if not auth_headers:
+            raise ValueError("No valid Azure image auth header could be built. Check IMAGE_AUTH_TYPE and tokens.")
 
         for headers in auth_headers:
             http_request = request.Request(
@@ -65,6 +76,12 @@ class AzureAIClient:
                 if exc.code not in (401, 403):
                     raise last_error
         else:
+            if last_error and "AuthenticationTypeDisabled" in str(last_error):
+                raise ValueError(
+                    "Azure key-based auth is disabled for image generation. "
+                    "Set AI.IMAGE_AUTH_TYPE to 'bearer' and provide AI.IMAGE_BEARER_TOKEN "
+                    "(Microsoft Entra access token for https://cognitiveservices.azure.com/.default)."
+                )
             raise last_error
 
         image_data = response_payload["data"][0]
@@ -78,17 +95,25 @@ class AzureAIClient:
         raise ValueError("Azure image generation response missing image data")
 
     @staticmethod
-    def _build_image_auth_headers(token):
-        return [
-            {
+    def _build_image_auth_headers(api_key, bearer_token, auth_type="auto"):
+        mode = (auth_type or "auto").strip().lower()
+        if mode not in ("auto", "api_key", "bearer"):
+            mode = "auto"
+
+        headers = []
+        if mode in ("auto", "api_key") and api_key:
+            headers.append({
                 "Content-Type": "application/json",
-                "api-key": token
-            },
-            {
+                "api-key": api_key
+            })
+
+        if mode in ("auto", "bearer") and bearer_token:
+            headers.append({
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}"
-            }
-        ]
+                "Authorization": f"Bearer {bearer_token}"
+            })
+
+        return headers
 
     def chat_completions(self, messages: list):
         completion = self.client.chat.completions.create(

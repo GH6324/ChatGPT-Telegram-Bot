@@ -8,6 +8,8 @@ AI:
   CHAT_BASE: "https://your-resource.openai.azure.com/"
   # Image generation
   IMAGE_TOKEN: "your azure openai api key"
+  IMAGE_AUTH_TYPE: "auto"  # auto/api_key/bearer
+  IMAGE_BEARER_TOKEN: ""  # Optional. Required when IMAGE_AUTH_TYPE is bearer
   IMAGE_MODEL: "your azure openai image deployment name"
   IMAGE_VERSION: "2025-04-01-preview"  # API version required for gpt-image-1
   IMAGE_BASE: "https://your-resource.openai.azure.com/"

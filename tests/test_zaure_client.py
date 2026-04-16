@@ -15,6 +15,8 @@ fake_mysql_conn.config = {
         "CHAT_BASE": "https://example.openai.azure.com",
         "CHAT_VERSION": "2024-05-01-preview",
         "IMAGE_TOKEN": "image-token",
+        "IMAGE_AUTH_TYPE": "auto",
+        "IMAGE_BEARER_TOKEN": "",
         "IMAGE_BASE": "https://example.openai.azure.com",
         "IMAGE_VERSION": "2025-04-01-preview",
         "IMAGE_MODEL": "gpt-image-1",
@@ -24,9 +26,14 @@ fake_mysql_conn.config = {
 sys.modules.setdefault('db.MySqlConn', fake_mysql_conn)
 
 from ai.azure import AzureAIClient
+from ai.azure import config as azure_config
 
 
 class TestAzureAIClient(unittest.TestCase):
+    def setUp(self):
+        azure_config["AI"]["IMAGE_AUTH_TYPE"] = "auto"
+        azure_config["AI"]["IMAGE_BEARER_TOKEN"] = ""
+
     @patch('ai.azure.request.urlopen')
     @patch('ai.azure.AzureOpenAI')
     def test_generate_image_returns_decoded_bytes(self, MockAzureOpenAI, mock_urlopen):
@@ -84,6 +91,43 @@ class TestAzureAIClient(unittest.TestCase):
 
         self.assertEqual(result, b"hello")
         self.assertEqual(mock_urlopen.call_count, 2)
+
+    @patch('ai.azure.request.urlopen')
+    @patch('ai.azure.AzureOpenAI')
+    def test_generate_image_bearer_mode_sends_authorization_header(self, MockAzureOpenAI, mock_urlopen):
+        azure_config["AI"]["IMAGE_AUTH_TYPE"] = "bearer"
+        azure_config["AI"]["IMAGE_BEARER_TOKEN"] = "aad-token"
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"data": [{"b64_json": "aGVsbG8="}]}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        client = AzureAIClient()
+        client.generate_image("fox")
+
+        http_request = mock_urlopen.call_args[0][0]
+        self.assertEqual(http_request.headers["Authorization"], "Bearer aad-token")
+
+    @patch('ai.azure.request.urlopen')
+    @patch('ai.azure.AzureOpenAI')
+    def test_generate_image_authentication_type_disabled_message(self, MockAzureOpenAI, mock_urlopen):
+        azure_config["AI"]["IMAGE_AUTH_TYPE"] = "api_key"
+
+        auth_disabled = HTTPError(
+            url='https://example.openai.azure.com',
+            code=403,
+            msg='Forbidden',
+            hdrs=None,
+            fp=MagicMock(read=MagicMock(return_value=b'{"error":{"code":"AuthenticationTypeDisabled"}}'))
+        )
+        mock_urlopen.side_effect = auth_disabled
+
+        client = AzureAIClient()
+
+        with self.assertRaises(ValueError) as context:
+            client.generate_image("fox")
+
+        self.assertIn("IMAGE_AUTH_TYPE", str(context.exception))
 
     @patch('ai.azure.AzureOpenAI')
     def test_chat_completions(self, MockAzureOpenAI):
