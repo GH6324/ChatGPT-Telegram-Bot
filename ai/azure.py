@@ -1,5 +1,6 @@
 import base64
 import json
+from typing import Union
 from urllib import parse, request
 
 from openai import AzureOpenAI
@@ -20,7 +21,7 @@ class AzureAIClient:
             api_version=config["AI"]["IMAGE_VERSION"]
         )
 
-    def generate_image(self, prompt) -> bytes | str:
+    def generate_image(self, prompt) -> Union[bytes, str]:
         endpoint = config["AI"]["IMAGE_BASE"].rstrip("/")
         deployment = config["AI"]["IMAGE_MODEL"]
         api_version = config["AI"]["IMAGE_VERSION"]
