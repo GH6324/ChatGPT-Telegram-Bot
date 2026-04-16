@@ -1,0 +1,75 @@
+name: Deploy ChatGPT Telegram Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create config.yaml from secrets
+        run: |
+          cat > config.yaml << 'EOF'
+          ${{ secrets.CONFIG_YAML }}
+          EOF
+        shell: bash
+
+      - name: Verify config.yaml
+        run: |
+          if [ ! -f config.yaml ]; then
+            echo "ERROR: config.yaml not found"
+            exit 1
+          fi
+          echo "✓ config.yaml created successfully"
+        shell: bash
+
+      - name: Build Docker image
+        run: |
+          docker build -t chatgpt-telegram-bot:latest .
+        shell: bash
+
+      - name: Stop running container if exists
+        run: |
+          if docker ps -a --format '{{.Names}}' | grep -q '^chatgpt-telegram-bot$'; then
+            echo "Stopping existing container..."
+            docker stop chatgpt-telegram-bot || true
+            docker rm chatgpt-telegram-bot || true
+            sleep 2
+          fi
+        shell: bash
+
+      - name: Start container
+        run: |
+          docker run -itd \
+            --name chatgpt-telegram-bot \
+            --network=host \
+            --restart=always \
+            -v /root/workspace/ai/chatgpt-telegram-bot/config.yaml:/app/config.yaml \
+            -v /root/workspace/ai/chatgpt-telegram-bot/templates.py:/app/buttons/templates.py \
+            -v /data/oss/chatgpt-telegram-bot/data:/app/data \
+            chatgpt-telegram-bot:latest
+        shell: bash
+
+      - name: Verify container is running
+        run: |
+          sleep 2
+          if docker ps --format '{{.Names}}' | grep -q '^chatgpt-telegram-bot$'; then
+            echo "✓ Container started successfully"
+            docker ps --filter "name=chatgpt-telegram-bot"
+          else
+            echo "ERROR: Container failed to start"
+            docker logs chatgpt-telegram-bot || echo "No logs available"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Show container logs
+        if: always()
+        run: |
+          echo "=== Container Logs ==="
+          docker logs chatgpt-telegram-bot || echo "Container not found"
+        shell: bash
