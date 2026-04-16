@@ -1,3 +1,7 @@
+import base64
+import json
+from urllib import parse, request
+
 from openai import AzureOpenAI
 from db.MySqlConn import config
 from ai import OPENAI_CHAT_COMPLETION_OPTIONS
@@ -16,17 +20,44 @@ class AzureAIClient:
             api_version=config["AI"]["IMAGE_VERSION"]
         )
 
-    def generate_image(self, prompt) -> str:
-        response = self.image_client.images.generate(
-            model=config["AI"]["IMAGE_MODEL"],
-            prompt=prompt,
-            size="1024x1024",
-            quality="standard",
-            n=1
+    def generate_image(self, prompt) -> bytes | str:
+        endpoint = config["AI"]["IMAGE_BASE"].rstrip("/")
+        deployment = config["AI"]["IMAGE_MODEL"]
+        api_version = config["AI"]["IMAGE_VERSION"]
+        api_url = (
+            f"{endpoint}/openai/deployments/{deployment}/images/generations?"
+            f"{parse.urlencode({'api-version': api_version})}"
+        )
+        payload = {
+            "prompt": prompt,
+            "size": "1024x1024",
+            "quality": "medium",
+            "output_compression": 100,
+            "output_format": "png",
+            "n": 1
+        }
+        http_request = request.Request(
+            api_url,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {config['AI']['IMAGE_TOKEN']}"
+            },
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST"
         )
 
-        image_url = response.data[0].url
-        return image_url
+        with request.urlopen(http_request, timeout=60) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+
+        image_data = response_payload["data"][0]
+
+        if image_data.get("b64_json"):
+            return base64.b64decode(image_data["b64_json"])
+
+        if image_data.get("url"):
+            return image_data["url"]
+
+        raise ValueError("Azure image generation response missing image data")
 
     def chat_completions(self, messages: list):
         completion = self.client.chat.completions.create(

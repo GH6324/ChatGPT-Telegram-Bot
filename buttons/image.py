@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from io import BytesIO
 import aiohttp
 import time
 from telegram import Update
@@ -18,6 +19,11 @@ from config import (
 
 
 async def download_image(image_url: str, save_path: str) -> None:
+    if isinstance(image_url, (bytes, bytearray)):
+        with open(save_path, 'wb') as f:
+            f.write(image_url)
+        return
+
     async with aiohttp.ClientSession() as session:
         async with session.get(image_url) as response:
             if response.status == 200:
@@ -63,15 +69,16 @@ async def set_image_prompt_handler(update: Update, context: ContextTypes.DEFAULT
             return CHOOSING
 
         placeholder_message = await update.message.reply_text("...")
-        image_url = await GenerateImage(image_prompt)
+        image_result = await GenerateImage(image_prompt)
         chat_id = update.effective_chat.id
 
         await context.bot.edit_message_text("Here is your generated image:", chat_id=placeholder_message.chat_id,
                                             message_id=placeholder_message.message_id)
-        await context.bot.send_photo(chat_id=chat_id, photo=image_url, reply_markup=reply_markup, parse_mode='Markdown')
+        photo = image_result if isinstance(image_result, str) else BytesIO(image_result)
+        await context.bot.send_photo(chat_id=chat_id, photo=photo, reply_markup=reply_markup, parse_mode='Markdown')
 
         project_root = get_project_root()
-        image_name = f'{nick_name}-{time.strftime("%Y%m%d-%H%M%S")}.jpg'
+        image_name = f'{nick_name}-{time.strftime("%Y%m%d-%H%M%S")}.png'
         save_path = f'{project_root}/data/pictures/{image_name}'
 
         date_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
@@ -82,6 +89,7 @@ async def set_image_prompt_handler(update: Update, context: ContextTypes.DEFAULT
         mysql.end()
         if notification_channel:
             msg = f"#U{user_id} {nick_name}: {image_prompt}"
-            await context.bot.send_photo(chat_id=notification_channel, photo=image_url, caption=msg, )
-        await download_image(image_url, save_path)
+            notification_photo = image_result if isinstance(image_result, str) else BytesIO(image_result)
+            await context.bot.send_photo(chat_id=notification_channel, photo=notification_photo, caption=msg, )
+        await download_image(image_result, save_path)
     return CHOOSING
