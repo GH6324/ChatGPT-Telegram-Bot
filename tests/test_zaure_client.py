@@ -2,6 +2,7 @@ import unittest
 import sys
 import types
 from unittest.mock import patch, MagicMock
+from urllib.error import HTTPError
 
 fake_openai = types.ModuleType('openai')
 fake_openai.AzureOpenAI = MagicMock()
@@ -39,6 +40,50 @@ class TestAzureAIClient(unittest.TestCase):
 
         self.assertEqual(result, b"hello")
         mock_urlopen.assert_called_once()
+
+    @patch('ai.azure.request.urlopen')
+    @patch('ai.azure.AzureOpenAI')
+    def test_generate_image_uses_api_key_header_first(self, MockAzureOpenAI, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"data": [{"b64_json": "aGVsbG8="}]}'
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        client = AzureAIClient()
+
+        client.generate_image("fox")
+
+        http_request = mock_urlopen.call_args[0][0]
+        self.assertEqual(http_request.headers["Api-key"], "image-token")
+
+    @patch('ai.azure.request.urlopen')
+    @patch('ai.azure.AzureOpenAI')
+    def test_generate_image_falls_back_to_bearer_after_403(self, MockAzureOpenAI, mock_urlopen):
+        forbidden = HTTPError(
+            url='https://example.openai.azure.com',
+            code=403,
+            msg='Forbidden',
+            hdrs=None,
+            fp=MagicMock(read=MagicMock(return_value=b'{"error": "forbidden"}'))
+        )
+        success_response = MagicMock()
+        success_response.read.return_value = b'{"data": [{"b64_json": "aGVsbG8="}]}'
+
+        def side_effect(http_request, timeout=60):
+            auth_header = http_request.headers.get("Authorization")
+            if auth_header:
+                context_manager = MagicMock()
+                context_manager.__enter__.return_value = success_response
+                return context_manager
+            raise forbidden
+
+        mock_urlopen.side_effect = side_effect
+
+        client = AzureAIClient()
+
+        result = client.generate_image("fox")
+
+        self.assertEqual(result, b"hello")
+        self.assertEqual(mock_urlopen.call_count, 2)
 
     @patch('ai.azure.AzureOpenAI')
     def test_chat_completions(self, MockAzureOpenAI):

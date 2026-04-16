@@ -1,6 +1,7 @@
 import base64
 import json
 from typing import Union
+from urllib.error import HTTPError
 from urllib import parse, request
 
 from openai import AzureOpenAI
@@ -37,18 +38,34 @@ class AzureAIClient:
             "output_format": "png",
             "n": 1
         }
-        http_request = request.Request(
-            api_url,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {config['AI']['IMAGE_TOKEN']}"
-            },
-            data=json.dumps(payload).encode("utf-8"),
-            method="POST"
-        )
+        last_error = None
+        auth_headers = self._build_image_auth_headers(config["AI"]["IMAGE_TOKEN"])
 
-        with request.urlopen(http_request, timeout=60) as response:
-            response_payload = json.loads(response.read().decode("utf-8"))
+        for headers in auth_headers:
+            http_request = request.Request(
+                api_url,
+                headers=headers,
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST"
+            )
+
+            try:
+                with request.urlopen(http_request, timeout=60) as response:
+                    response_payload = json.loads(response.read().decode("utf-8"))
+                break
+            except HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="replace")
+                last_error = HTTPError(
+                    exc.url,
+                    exc.code,
+                    f"{exc.reason}: {error_body}",
+                    exc.headers,
+                    None
+                )
+                if exc.code not in (401, 403):
+                    raise last_error
+        else:
+            raise last_error
 
         image_data = response_payload["data"][0]
 
@@ -59,6 +76,19 @@ class AzureAIClient:
             return image_data["url"]
 
         raise ValueError("Azure image generation response missing image data")
+
+    @staticmethod
+    def _build_image_auth_headers(token):
+        return [
+            {
+                "Content-Type": "application/json",
+                "api-key": token
+            },
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }
+        ]
 
     def chat_completions(self, messages: list):
         completion = self.client.chat.completions.create(
